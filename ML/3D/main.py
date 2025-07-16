@@ -5,15 +5,34 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import logging
+import random
+from torch.optim.lr_scheduler import OneCycleLR
+
 
 from domain import sample_points
 from energy import energy_loss, boundary_loss
 from plot_machine import plotter
-from l2_error import compute_l2_error
+from error import compute_l2_error, conservation_loss
 """
 Same routine as in 1D and 2D case.
 
 """
+
+#Set device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Set seed for reproducibility
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+    # Ensures deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Logger
 logging.basicConfig(
@@ -23,31 +42,19 @@ logging.basicConfig(
         logging.FileHandler("train.log"),
     ]
 )
-def true_psi0_3d(xx, yy, zz):
-    """
-    Returns the 3d groundstate soltuion
-    """
-    return (1 / np.pi**(3/4)) * np.exp(-0.5 * (xx**2 + yy**2 + zz**2))
 
-# Complex network for future; not used here
-class ComplexNetwork(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.fc1 = nn.Linear(1, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.out = nn.Linear(64, 2)
 
-    def forward(self, x):
-        x = torch.Tanh(self.fc1(x))
-        x = torch.Tanh(self.fc2(x))
-        x = torch.Tanh(self.fc2(x))
-        x = torch.Tanh(self.fc2(x))
-        re, im = self.out(x).unbind(dim=-1)
-        return torch.complex(re, im)
+#Initialize weights
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        torch.nn.init.xavier_uniform_(m.weight)
+        if m.bias is not None:
+            torch.nn.init.zeros_(m.bias) 
+
 
 # Simple network
 class NeuralNetwork(nn.Module):
-    def __init__(self, input_dim = 3, hidden_dim = 125, output_dim = 1):
+    def __init__(self, input_dim = 3, hidden_dim = 60, output_dim = 1):
         super(NeuralNetwork, self).__init__()
         self.layers = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -64,23 +71,25 @@ class NeuralNetwork(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_dim, output_dim)
         )
-    
+        self.apply(init_weights)
     def forward(self, x):
         return self.layers(x)
     
 def main():
     # Initialize model and set hyperparameters
     model = NeuralNetwork()
-    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    #model = model.to(device)
-    optimizer = optim.Adam(model.parameters(), lr = 1e-3)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.5)
-    n_epochs = 10 # tried 50k steps. Not much change
-    lambda_boundary = 1000
+    model.to(device)
+    optimizer = optim.Adam(model.parameters(), lr = 1e-2)#, weight_decay=1e-3)
+
+    n_epochs = 7000 # tried 50k steps. Not much change
     loss = []
     l2 = []
     best_loss = float('inf')
+    best_l2 = float('inf')
     best_model_path = "best_model.pth"
+    #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3000, gamma=0.5)
+    scheduler = OneCycleLR(optimizer, max_lr=1e-2, total_steps=n_epochs, pct_start=0.3, anneal_strategy='cos')
+    """ 
     interior, boundary = sample_points()
     
     # Plot the sampled points (can be commented out)
@@ -102,41 +111,51 @@ def main():
     grid_points = torch.stack([xx.flatten(), yy.flatten(), zz.flatten()], dim=1) 
     dx = 2 * L / (n_points - 1)
     volume_element = dx **3
-    psi_true = true_psi0_3d(xx, yy, zz).cpu().numpy()
+     """
     # Training loop. Same as before
     for epoch in tqdm(range(n_epochs)):
+        set_seed(epoch)
         optimizer.zero_grad()
-        interior, boundary = sample_points()
+
+        interior, boundary = sample_points(device)
         loss_interior = energy_loss(model, interior)
         loss_boundary = boundary_loss(model, boundary)
-        total_loss = loss_interior + lambda_boundary * loss_boundary
+        loss_conv = conservation_loss(model, device)
+        total_loss = loss_interior +  500*loss_boundary + loss_conv
         total_loss.backward()
-        #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         scheduler.step()
 
+        l2_error = compute_l2_error(model, device)
+
         loss.append(total_loss.item())
-        l2_error = compute_l2_error(model, grid_points, n_points, psi_true, volume_element)
-        l2.append(l2_error)
+        l2.append(l2_error.item())
         # Log losses and save best model
-        if total_loss < best_loss:
+        if l2_error.item() < best_l2:
+            best_loss = total_loss.item()
+            best_l2 = l2_error.item()
             print(f"Epoch {epoch}, Total Loss: {total_loss.item():.6f}, "
                          f"Interior Loss: {loss_interior.item():.6f}, "
                          f"Boundary Loss: {loss_boundary.item():.6f}, "
+                         f"Consv Loss: {loss_conv.item():.4f}, "
+                         f"L2: {l2_error:.5f}, "
                          f"Best Loss: {best_loss:.7f}")
                                 
             logging.info(f"Epoch {epoch}: Best Loss: {best_loss:.4f}, saving model")
-            best_loss = total_loss.item()
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': best_loss,
+                'l2': best_l2
             }, best_model_path)
         
         logging.info(f"Epoch {epoch}, Total Loss: {total_loss.item():.6f}, "
                          f"Interior Loss: {loss_interior.item():.6f}, "
                          f"Boundary Loss: {loss_boundary.item():.6f}"
+                         f"Consv Loss: {loss_conv.item():.4f}, "
+                         f"L2: {l2_error:.5f}, "
                          f"Best Loss: {best_loss:.7f}")
 
 

@@ -16,12 +16,12 @@ def plotter():
 
     l2_history = np.load('l2.npy')
     plt.figure(figsize=(10, 6))
-    plt.plot(loss_history, label="L2 error", color="blue")
+    plt.plot(l2_history, label="L2 error", color="blue")
     plt.xlabel("Epoch")
     plt.ylabel("L2")
     plt.yscale("log")  # Use log scale if losses vary widely
     plt.legend()
     plt.grid(True)
     plt.title("Deep Ritz Method Training L2 Error")
-    plt.savefig("l2s_plot.png")  # Save the plot
+    plt.savefig("l2_plot.png")  # Save the plot
     plt.show()

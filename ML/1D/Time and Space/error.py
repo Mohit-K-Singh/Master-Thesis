@@ -12,10 +12,25 @@ def psi_true(x, t, m=1.0, omega=1.0, hbar=1.0):
     return prefactor * exp_space * exp_time
 
 
+def conservation_loss(model,device,x_range=(-5, 5), num_points=50):
+    x = torch.linspace(*x_range, num_points).to(device)
+    t = torch.linspace(0, 1, num_points).to(device)
+    X, T = torch.meshgrid(x, t, indexing='ij')
+    #print(X.shape, T.shape)
+    x_flat, t_flat = X.flatten().unsqueeze(-1), T.flatten().unsqueeze(-1)
+    #print(x.shape)
+    psi = model(x_flat, t_flat)
+    psi = psi.reshape(X.shape)
+    prob_density = torch.abs(psi)**2
+    norm = torch.trapezoid(prob_density, x=x, dim = 0) 
+    final_norm = torch.sqrt(torch.trapezoid(norm, x=t))
+    norm_loss = (final_norm - 1.0)**2
+    return norm_loss
 
-def compute_error(model, device):
-    x = torch.linspace(-6, 6, 100).to(device)
-    t = torch.linspace(0, 1, 100).to(device)
+
+def compute_error(model, device, num_points =100):
+    x = torch.linspace(-5, 5, num_points).to(device)
+    t = torch.linspace(0, 1, num_points).to(device)
     X, T = torch.meshgrid(x, t, indexing='ij')
 
     x_flat = X.reshape(-1, 1)

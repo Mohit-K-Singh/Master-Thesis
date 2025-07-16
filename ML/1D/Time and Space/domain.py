@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 
-def sample_space_time_points(device, n_interior=100, n_boundary=50, n_initial=200, x_range=(-5.0, 5.0), t_range=(0.0, 1)):
+def sample_space_time_points(device, n_interior=5000, n_boundary=700, n_initial=3000, x_range=(-5.0, 5.0), t_range=(0.0, 1)):
     """
     Samples space-time points for training a PINN for the time-dependent Schrödinger equation.
     """

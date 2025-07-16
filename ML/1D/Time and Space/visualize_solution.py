@@ -19,8 +19,8 @@ def psi_true(x, t, m=1.0, omega=1.0, hbar=1.0):
 
 
 # Create a meshgrid of x and t values
-x = torch.linspace(-6, 6, 200)
-t = torch.linspace(0, 0.8, 100)
+x = torch.linspace(-5, 5, 200)
+t = torch.linspace(0, 1, 200)
 print("x:", x.shape)
 X, T = torch.meshgrid(x, t, indexing='ij')
 
@@ -30,7 +30,7 @@ t_flat = T.reshape(-1, 1)
 
 # Evaluate model (without gradient)
 model = ComplexNetwork()
-checkpoint = torch.load("Best/true_1_low.pth", weights_only=True)
+checkpoint = torch.load("best_model.pth", weights_only=True)
 #checkpoint = torch.load("2_percent.pth", map_location=torch.device('cpu'))
 model.load_state_dict(checkpoint['model_state_dict'])
 model.eval()
@@ -92,6 +92,7 @@ plt.ylabel(r"$\int |\psi(x,t)|^2 dx$")
 plt.title("Normalization Check over Time")
 plt.legend()
 plt.grid(True)
+plt.savefig('Density_time.png')
 plt.show()
 
 

@@ -4,7 +4,15 @@ from scipy.integrate import trapezoid
 
 ############## 1D- Time dependent Schrödinger equation ##########################
 
+
 def boundary_loss(model, x,t):
+    """
+    Calculates the loss on the boundary --> Is used for the boundary penalty method to enforce boundary conditions (Dirichlet for now)
+    """
+   
+    psi_b = model(x,t)
+    return torch.mean(torch.abs(psi_b)**2)
+def boundary_loss1(model, x,t):
     """
     Calculates the loss on the boundary --> Is used for the boundary penalty method to enforce boundary conditions (Dirichlet for now)
     """
@@ -21,24 +29,6 @@ def boundary_loss(model, x,t):
     return torch.abs(psi_time)
     #return torch.trapezoid(torch.abs(psi_b)**2)
     #return torch.mean(torch.abs(psi_b)**2)
-def phase_evolution_loss1(model, x_ref, t_ref, omega=1.0):
-    """
-    Penalize deviation from correct global phase evolution.
-    Expected: psi(x,t) = psi(x,0) * exp(-i omega t / 2)
-    """
-
-    with torch.no_grad():
-        psi0 = model(x_ref, torch.zeros_like(t_ref))
-
-    psi_t = model(x_ref, t_ref)
-    
-    # Expected phase shift
-    expected_phase = -0.5 * omega * t_ref.squeeze()
-
-    # Compute actual phase shift
-    relative_phase = torch.angle(psi_t * torch.conj(psi0))
-    # Penalize deviation
-    return torch.trapezoid((relative_phase - expected_phase) ** 2, x=t_ref.squeeze())
 
 def phase_evolution_loss(model, x_refs, t_refs, omega=1.0):
     """
@@ -49,45 +39,34 @@ def phase_evolution_loss(model, x_refs, t_refs, omega=1.0):
     - t_refs: [Nt, 1]
     """
 
-    Nx, Nt = x_refs.size(0), t_refs.size(0)
 
     # 1. Create meshgrid of shape [Nx, Nt]
-    X, T = torch.meshgrid(x_refs.squeeze(), t_refs.squeeze(), indexing='ij')
-    x_grid = X.reshape(-1, 1)  # shape [Nx*Nt, 1]
-    t_grid = T.reshape(-1, 1)  # shape [Nx*Nt, 1]
+    X, T = torch.meshgrid(x_refs, t_refs, indexing='ij')
+    x_grid = X.reshape(-1, 1)  
+    t_grid = T.reshape(-1, 1) 
 
-    with torch.no_grad():
-        psi0 = model(x_grid, torch.zeros_like(t_grid))
+    #with torch.no_grad():
+    psi0 = model(x_grid, torch.zeros_like(t_grid)).reshape(X.shape)
 
-    psi_t = model(x_grid, t_grid)
+    psi_t = model(x_grid, t_grid).reshape(X.shape)
 
     # 2. Compute relative phase
-    expected_phase = -0.5 * omega * t_refs.squeeze()  # shape [Nx*Nt]
+    expected_phase = (-0.5 * omega * t_grid).reshape(X.shape) # shape [Nx*Nt]
     relative_phase = torch.angle(psi_t * torch.conj(psi0))  # shape [Nx*Nt]
-
-    # 3. Reshape to [Nx, Nt]
-    rel_phase_grid = relative_phase.view(Nx, Nt)
-    expected_grid = expected_phase.view(1, Nt).expand(Nx, Nt)
+   
 
     # 4. Integrate over x and t using trapezoidal rule
-    phase_error = (rel_phase_grid - expected_grid)**2
-    dx = x_refs[1] - x_refs[0]
-    dt = t_refs[1] - t_refs[0]
-    loss = torch.trapezoid(torch.trapezoid(phase_error, x=t_refs.squeeze(), dim=1), x=x_refs.squeeze(), dim=0)
+    phase_error = (relative_phase - expected_phase)**2
 
+    loss = torch.trapezoid(torch.trapezoid(phase_error, x=x_refs.squeeze(), dim=0), x=t_refs.squeeze(), dim=0)
     return loss
 def initial_loss(model, x,t, psi_initial):
 
     psi_0 = model(x,t)
 
-    #print("Initial_loss:",psi_0.shape, psi_initial.shape)
-    #x= initial_points[:,0:1]
     loss = torch.trapezoid(torch.abs(psi_0 - psi_initial)**2, x=x.squeeze())
-    #phase = torch.angle(psi_0 * torch.conj(psi_initial))
-    #phase_loss = torch.trapezoid(torch.sin(phase)**2, x=x.squeeze())
-    #phase_loss = torch.trapezoid(1 - torch.cos(phase), x=x.squeeze())
-    #print(phase_loss, loss)
-    #print("initial_loss:", loss.shape)
+    #loss = (torch.abs(psi_0-psi_initial)**2).mean()
+
     return loss # + phase_loss
 
 
@@ -157,13 +136,8 @@ def variational_loss(model, x,t):
     return S
     return torch.abs(S)
 def tdse_residual_loss(model, x,t):
-    N_x = x.numel()
-    x_max = torch.max(x).cpu().detach().numpy()
-    x_min = torch.min(x).cpu().detach().numpy()
-    t_max = torch.max(t).cpu().detach().numpy()
-    t_min = torch.min(t).cpu().detach().numpy()
-    dx = (x_max -x_min) /(N_x -1)
-    dt = (t_max - t_min) /(N_x -1)
+
+
     x.requires_grad_(True)
     t.requires_grad_(True)
     
@@ -171,7 +145,6 @@ def tdse_residual_loss(model, x,t):
     #print("psi : ", psi.shape)
     psi_real =psi.real
     psi_imag =psi.imag
-    phi = psi.detach().clone()  # test function (frozen)
     # Potential
     V = 0.5 * x**2
     #print("V: ", V.squeeze().shape)
@@ -207,8 +180,8 @@ def tdse_residual_loss(model, x,t):
     
     # Residual attempt
     residual = 1j * dpsi_dt.squeeze() - H_psi
-    #loss = torch.mean(torch.abs(residual)**2)
-    loss = torch.trapezoid(torch.abs(residual)**2)
+    loss = torch.mean(torch.abs(residual)**2)
+    #loss = torch.trapezoid(torch.abs(residual)**2)
     
     return loss
 

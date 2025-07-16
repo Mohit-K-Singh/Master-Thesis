@@ -12,7 +12,7 @@ def plotter():
     plt.grid(True)
     plt.title("Deep Ritz Method Training Loss")
     plt.savefig("loss_plot.png")  # Save the plot
-    plt.show()
+    #plt.show()
 
     l2_history = np.load('l2.npy')
     plt.figure(figsize=(10, 6))
@@ -24,4 +24,4 @@ def plotter():
     plt.grid(True)
     plt.title("Deep Ritz Method Training L2 Error")
     plt.savefig("l2s_plot.png")  # Save the plot
-    plt.show()
+    #plt.show()

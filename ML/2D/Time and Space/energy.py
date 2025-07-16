@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-def phase_evolution_loss(model, x,t, omega=1.0):
+def phase_evolution_loss1(model, x,t, omega=1.0):
     """
     Penalize deviation from expected global phase evolution, integrated over x and t.
     Makes sure we learn the right phase!
@@ -24,19 +24,19 @@ def phase_evolution_loss(model, x,t, omega=1.0):
     return loss
 
 
-def phase_evolution_loss1(model, x,t, omega=1.0):
+def phase_evolution_loss(model, xy,t, omega=1.0):
     """
     Penalize deviation from expected global phase evolution, integrated over x and t.
     Makes sure we learn the right phase!
     2DTD Schrödinger equation with Harmonic oscilator as potential
 
     """
-    x = x.unsqueeze(-1)
-    t = t.unsqueeze(-1)
-    xy_input = torch.stack([x,x], dim=1).squeeze()
-    psi0 = model(xy_input, torch.zeros_like(t))
+    #x = x.unsqueeze(-1)
+    #t = t.unsqueeze(-1)
+    #xy_input = torch.stack([x,x], dim=1).squeeze()
+    psi0 = model(xy, torch.zeros_like(t))
 
-    psi_t = model(xy_input, t)
+    psi_t = model(xy, t)
 
     expected_phase = (-1 * omega * t.squeeze())
     relative_phase = torch.angle(psi_t * torch.conj(psi0))
@@ -45,78 +45,14 @@ def phase_evolution_loss1(model, x,t, omega=1.0):
     return phase_error.mean()
     #loss = torch.trapezoid(torch.trapezoid(torch.trapezoid(phase_error, x=x, dim=0),x=x, dim=0), x=t, dim=0)
     return loss
-def boundary_loss2(model, xy, time):
-    x,_ = torch.sort(xy[:,0], dim=0)
-    y,_ = torch.sort(xy[:,1], dim=0)
-    t,_ = torch.sort(time, dim=0)
-    # Create full meshgrid
-    X, Y, T = torch.meshgrid(x, y, t.squeeze(), indexing='ij')
-    
-    # Identify boundary points (where x=a, x=b, y=a, or y=b)
-    a, b = x.min().item(), x.max().item()
-    is_boundary = ((X == a) | (X == b) | (Y == a) | (Y == b))
-    
-    # Extract boundary points
-    xy_boundary = torch.stack([X[is_boundary], Y[is_boundary]], dim=-1)
-    t_boundary = T[is_boundary].unsqueeze(-1)
-    # Evaluate model on boundary
-    psi_boundary = model(xy_boundary, t_boundary)
-    psi_boundary = psi_boundary.reshape(len(t), -1)  # Group by time
-    loss = torch.abs(psi_boundary)**2
-    return loss.mean() 
 
-
-def boundary_loss1(model, xy, time):
-    x,_ = torch.sort(xy[:,0], dim=0)
-    y,_ = torch.sort(xy[:,1], dim=0)
-    t,_ = torch.sort(time, dim=0)
-
-    X, Y, T = torch.meshgrid(x, y, t.squeeze(), indexing='ij')
-    xy_input = torch.stack([X.flatten(), Y.flatten()], dim=-1)
-    t_input = T.flatten().unsqueeze(-1)
-    psi = model(xy_input, t_input) #.reshape(X.shape)
-    """ # Convert to numpy for plotting
-    X_np = X.detach().cpu().numpy()
-    Y_np = Y.detach().cpu().numpy()
-
-    # Flatten the grid (optional, but useful if you want to see all points)
-    x_flat = X_np.flatten()
-    y_flat = Y_np.flatten()
-
-    # Create a 2D scatter plot of the grid points
-    plt.figure(figsize=(8, 6))
-    plt.scatter(x_flat, y_flat, s=5, c='b', alpha=0.6, label='Grid Points')
-
-    # Mark boundary points (optional, if you want to distinguish them)
-    a, b = x.min().item(), x.max().item()  # Assuming [a, b] is your spatial domain
-    boundary_mask = (
-        (x_flat == a) | (x_flat == b) | 
-        (y_flat == a) | (y_flat == b)
-    )
-    plt.scatter(
-        x_flat[boundary_mask], 
-        y_flat[boundary_mask], 
-        s=20, c='r', alpha=1.0, label='Boundary Points'
-    )
-
-    plt.xlabel('x', fontsize=12)
-    plt.ylabel('y', fontsize=12)
-    plt.title('Grid Points (Sanity Check)', fontsize=14)
-    plt.grid(True, linestyle='--', alpha=0.5)
-    plt.legend()
-    plt.tight_layout()
-    plt.show() """
-    #loss_space= torch.trapezoid(torch.trapezoid(torch.abs(psi)**2, x=t.squeeze(), dim=2), x=y, dim=1)
-    #loss = torch.trapezoid(loss_space, x=y, dim=0)
-    loss = torch.trapezoid(torch.abs(psi)**2, x=X.flatten(), dim=0)
-    return loss
 def boundary_loss(model, xy, time):
-    t,_ = torch.sort(time, dim=0)
-    psi = model(xy, t)
-    #loss = torch.trapezoid(torch.abs(psi)**2, x=t.squeeze(), dim=0)
-    loss = (torch.abs(psi)**2).mean()
+    #t,_ = torch.sort(time, dim=0)
+    psi = model(xy, time)
+    #loss = torch.trapezoid(torch.abs(psi)**2, x=time.squeeze(), dim=0)
+    loss = (torch.abs(psi)**2).mean() 
     return loss
-def initial_loss(model, x, time, psi_initial):
+def initial_loss1(model, x, time, psi_initial):
     #x,_ = torch.sort(xy[:,0], dim=0)
     #y,_ = torch.sort(xy[:,1], dim=0)
     #t,_ = torch.sort(time, dim=0)
@@ -127,23 +63,33 @@ def initial_loss(model, x, time, psi_initial):
     t_input = T.flatten().unsqueeze(-1)
     psi = model(xy_input, t_input).reshape(X.shape)[:,:,0]
     psi_initial = psi_initial.reshape(psi.shape)
+    
     loss = torch.trapezoid(torch.trapezoid(torch.abs(psi-psi_initial)**2, x=x, dim=0), x=x, dim=0)
     return loss
+def initial_loss(model, xy, time, psi_initial):
+    #x,_ = torch.sort(xy[:,0], dim=0) 
+    #print(xy.shape, time.shape)
+    psi = model(xy, time)
+    #loss_1 = torch.trapezoid(torch.abs(psi-psi_initial)**2, x=xy[:,0], dim=0)
+    #loss = torch.trapezoid(loss_1,x=xy[:,1],dim=0)
+    #print(psi.shape, psi_initial.shape)
+    loss = (torch.abs(psi-psi_initial)**2).mean() 
+    return loss
 def variational_loss(model, xy,time):
-    x,_ = torch.sort(xy[:,0], dim=0)
+    x,_ = torch.sort(xy[:,0], dim=0) #shape 40
     y,_ = torch.sort(xy[:,1], dim=0)
     t,_ = torch.sort(time, dim=0)
 
     X, Y, T = torch.meshgrid(x, y, t.squeeze(), indexing='ij')
 
-    xy_input = torch.stack([X.flatten(), Y.flatten()], dim=-1)
-    #print(xy_input.shape)
+    xy_input = torch.stack([X.flatten(), Y.flatten()], dim=-1) #[64000,2]
+    #print(xy_input.shape) 
     t_input = T.flatten().unsqueeze(-1)
 
     xy_input.requires_grad_(True)
     t_input.requires_grad_(True)
 
-    psi = model(xy_input, t_input)
+    psi = model(xy_input, t_input) # [64000]
     #print(psi.shape)
 
     V = 0.5 * (X**2 + Y**2)
@@ -157,7 +103,7 @@ def variational_loss(model, xy,time):
     dpsi_real_dx = torch.autograd.grad(psi.real, xy_input, grad_outputs=torch.ones_like(psi.real), create_graph=True)[0][:,0]
     dpsi_imag_dx = torch.autograd.grad(psi.imag, xy_input, grad_outputs=torch.ones_like(psi.imag), create_graph=True)[0][:,0]
 
-    dpsi_dx = torch.complex(dpsi_real_dx, dpsi_imag_dx)
+    dpsi_dx = torch.complex(dpsi_real_dx, dpsi_imag_dx) #[64000]
     #print(dpsi_dx.shape)
 
 
@@ -166,7 +112,7 @@ def variational_loss(model, xy,time):
 
     dpsi_dy = torch.complex(dpsi_real_dy, dpsi_imag_dy)
 
-    psi = psi.reshape(X.shape)
+    psi = psi.reshape(X.shape) #[40,40,40]
     dpsi_dt = dpsi_dt.reshape(X.shape)
     dpsi_dx = dpsi_dx.reshape(X.shape)
     dpsi_dy = dpsi_dy.reshape(X.shape)
@@ -180,7 +126,75 @@ def variational_loss(model, xy,time):
     #print(inner.shape)
     diff_inner = (1j/2 * (inner -inner2)).real
     #print(diff_inner)
-    Langrangian = diff_inner - Expectation
+    Langrangian = diff_inner - Expectation #shape 40
+    #S = Langrangian.mean()
+    #print(Langrangian.shape)
     S= torch.trapezoid(Langrangian,x=t.squeeze())
+    #S = torch.mean(Langrangian)
+    #grads = torch.autograd.grad(S, model.parameters(), create_graph=True)
+    #print(type(grads), grads[1].shape)
+    #print(grads.shape)
+    #flat_grads = torch.cat([g.reshape(-1) for g in grads])
+    #print(flat_grads.shape, flat_grads[1], flat_grads)
+    #loss = torch.sum(torch.norm(flat_grads)**2)
+    #return loss
+    #print(loss)
     #print(S)
     return S
+
+
+def tdse_residual_loss(model, xy,time):
+
+
+    xy.requires_grad_(True)
+    time.requires_grad_(True) 
+    
+    psi = model(xy, time) # [64000]
+    #print("psi",psi.shape)
+
+    #V = 0.5 * (X**2 + Y**2)
+    #x = xy[:, 0]
+    #y = xy[:, 1]
+    V = 0.5 * (xy[:, 0]**2 + xy[:, 1]**2)
+    #print("V", V.shape)
+    dpsi_real_dt = torch.autograd.grad(psi.real, time, grad_outputs=torch.ones_like(psi.real), create_graph=True)[0]
+    dpsi_imag_dt = torch.autograd.grad(psi.imag, time, grad_outputs=torch.ones_like(psi.imag), create_graph=True)[0]
+    #print("dpsi_dt", dpsi_real_dt.shape)
+    dpsi_dt = torch.complex(dpsi_real_dt, dpsi_imag_dt)
+    #print(dpsi_dt.shape)
+
+    dpsi_real_dx = torch.autograd.grad(psi.real, xy, grad_outputs=torch.ones_like(psi.real), create_graph=True)[0][:,0]
+    dpsi_imag_dx = torch.autograd.grad(psi.imag, xy, grad_outputs=torch.ones_like(psi.imag), create_graph=True)[0][:,0]
+
+    dpsi_dx = torch.complex(dpsi_real_dx, dpsi_imag_dx) #[64000]
+    #print(dpsi_real_dx.shape)
+
+
+    dpsi_real_dy = torch.autograd.grad(psi.real, xy, grad_outputs=torch.ones_like(psi.real), create_graph=True)[0][:,1]
+    dpsi_imag_dy = torch.autograd.grad(psi.imag, xy, grad_outputs=torch.ones_like(psi.imag), create_graph=True)[0][:,1]
+
+    dpsi_dy = torch.complex(dpsi_real_dy, dpsi_imag_dy)
+
+
+    # Second derivatives
+    d2psi_real_dx2 = torch.autograd.grad(dpsi_real_dx, xy, grad_outputs=torch.ones_like(dpsi_real_dx), create_graph=True)[0][:,0]
+    d2psi_imag_dx2 = torch.autograd.grad(dpsi_imag_dx, xy, grad_outputs=torch.ones_like(dpsi_imag_dx),create_graph=True)[0][:,0]
+
+                                         
+    d2psi_real_dy2 = torch.autograd.grad(dpsi_real_dy, xy, torch.ones_like(dpsi_real_dy), create_graph=True)[0][:, 1]
+    d2psi_imag_dy2 = torch.autograd.grad(dpsi_imag_dy, xy, torch.ones_like(dpsi_imag_dy), create_graph=True)[0][:, 1]
+    d2psi_dy2 = torch.complex(d2psi_real_dy2, d2psi_imag_dy2)
+
+    d2psi_dx2 = torch.complex(d2psi_real_dx2, d2psi_imag_dx2)
+    
+    H_psi = -0.5 * (d2psi_dx2 + d2psi_dy2)+ V * psi
+    #print(H_psi.shape, dpsi_dt.shape)
+    # Residual attempt
+    residual = 1j * dpsi_dt.squeeze() - H_psi
+    #print(residual.shape)
+    loss = torch.mean(torch.abs(residual)**2)
+    #x1,_ = torch.sort(xy[:,0],dim=0)
+    #x2,_ = torch.sort(xy[:,1], dim=0)
+    #loss_1 = torch.trapezoid(torch.abs(residual)**2, x=x1, dim=0)
+    #loss = torch.trapezoid(loss_1,x=x2,dim=0)
+    return loss
